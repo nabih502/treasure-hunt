@@ -2,17 +2,15 @@ const SUPABASE_URL = 'https://uamhxhmrwcugoroeplln.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhbWh4aG1yd2N1Z29yb2VwbGxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2MzY3NzQsImV4cCI6MjA4MjIxMjc3NH0.IQ8G73Swnc8Q9VoQdi9TOj-fKYcKd2K50SuIXBuuR64';
 
 const BTYPES = {
-  HOSPITAL: { color: 0xffffff, accent: 0xef4444, nameAr: 'مستشفى الأمل' },
-  SCHOOL:   { color: 0xfacc15, accent: 0x1e40af, nameAr: 'مدرسة النور' },
-  FACTORY:  { color: 0x475569, accent: 0x1e293b, nameAr: 'مصنع الغد' },
-  MALL:     { color: 0xec4899, accent: 0xbe185d, nameAr: 'مول الخليج' },
-  MOSQUE:   { color: 0x10b981, accent: 0x065f46, nameAr: 'مسجد القرية' },
-  TOWER:    { color: 0x334155, accent: 0x60a5fa, nameAr: 'برج سكني' },
-  HOUSE:    { color: 0xf1f5f9, accent: 0x991b1b, nameAr: 'منزل سكني' },
+  HOSPITAL: { color: 0xffffff, accent: 0xef4444, nameAr: 'مستشفى الأمل', desc: 'مبنى أبيض طويل بخطوط حمراء', colorName: 'أبيض' },
+  SCHOOL:   { color: 0xfacc15, accent: 0x1e40af, nameAr: 'مدرسة النور', desc: 'مبنى أصفر بخطوط زرقاء', colorName: 'أصفر' },
+  FACTORY:  { color: 0x475569, accent: 0x1e293b, nameAr: 'مصنع الغد', desc: 'مبنى رمادي بمدخنة', colorName: 'رمادي غامق' },
+  MALL:     { color: 0xec4899, accent: 0xbe185d, nameAr: 'مول الخليج', desc: 'مبنى وردي لامع', colorName: 'وردي' },
+  MOSQUE:   { color: 0x10b981, accent: 0x065f46, nameAr: 'مسجد القرية', desc: 'مبنى أخضر بقبة ذهبية', colorName: 'أخضر' },
+  TOWER:    { color: 0x334155, accent: 0x60a5fa, nameAr: 'برج سكني', desc: 'برج زجاجي شاهق بلون زرقي', colorName: 'رمادي زجاجي' },
+  HOUSE:    { color: 0xf1f5f9, accent: 0x991b1b, nameAr: 'منزل سكني', desc: 'منزل أبيض بسطح أحمر', colorName: 'أبيض' },
 };
 
-// ─── Seeded random (Mulberry32) ───────────────────────────────
-// بيضمن إن نفس الـ seed يطلع نفس المدينة عند المضيف والزائر
 function makeRng(seed) {
   let s = seed >>> 0;
   return function() {
@@ -23,12 +21,11 @@ function makeRng(seed) {
   };
 }
 
-let rng = Math.random; // افتراضي — هيتغير لما تيجي الـ seed
-
+let rng = Math.random;
 let sb = null, realtimeChannel = null;
 let G = { name:'', role:'host', myScore:0, opScore:0, oppName:'؟', roomCode:'', hidden:null, selected:null, attempts:3, phase:'lobby', timerV:60, timerI:null, citySeed:0 };
 let scene, camera, renderer, cityGroup, raycaster, mouse;
-let selectableBuildings = [], cars = [];
+let selectableBuildings = [], cars = [], markers = [];
 let isMouseDown = false, targetRotX = 0.55, targetRotY = -0.4;
 let lastMX = 0, lastMY = 0, highlightedMesh = null;
 
@@ -64,7 +61,6 @@ async function doCreate() {
   const name = getName(); if (!name) return;
   initSB();
   G.name = name; G.role = 'host'; G.roomCode = genCode();
-  // المضيف يولّد الـ seed وبيحفظه في قاعدة البيانات
   G.citySeed = Math.floor(Math.random() * 2147483647);
   const { error } = await sb.from('game_rooms').insert({
     code: G.roomCode, host_name: name, status: 'waiting', map_idx: G.citySeed, phase: 'hiding'
@@ -85,7 +81,6 @@ async function doJoin() {
   const { data, error } = await sb.from('game_rooms').select('*').eq('code', code).eq('status', 'waiting').single();
   if (error || !data) { showErr('الغرفة مش موجودة'); return; }
   G.oppName = data.host_name;
-  // الزائر بياخد نفس الـ seed من قاعدة البيانات
   G.citySeed = data.map_idx || 1;
   await sb.from('game_rooms').update({ guest_name: name, status: 'playing' }).eq('code', code);
   document.getElementById('show-code').textContent = code;
@@ -121,6 +116,7 @@ function handleMsg(type, data) {
     document.getElementById('seeker-ctrl').style.display = 'block';
     document.getElementById('hider-ctrl').style.display = 'none';
     document.getElementById('att-row').style.display = 'flex';
+    hideBuildingInfo();
     updateDots(); updateBadge(); startTimer();
   } else if (type === 'guess') {
     handleGuess(data.cell, data.attempt);
@@ -148,8 +144,14 @@ async function confirmHide() {
   if (!G.selected) return;
   G.hidden = G.selected; G.phase = 'ready_to_search'; updateUI();
   const b = selectableBuildings.find(x => x.id === G.selected);
-  if (b) { b.mesh.material.color.setHex(0xffd700); b.grp.userData.marked = true; }
-  setStatus('تم تحديد: ' + (b ? b.nameAr : '') + ' — اضغط ابدأ البحث');
+  // أضف علامة الكنز فوق المبنى
+  if (b) {
+    b.mesh.material.color.setHex(0xffd700);
+    b.grp.userData.marked = true;
+    addGemMarker(b);
+    showBuildingInfo(b, true);
+  }
+  setStatus('تم تحديد مخبأ الكنز ✔️ — اضغط ابدأ البحث');
   document.getElementById('btn-hide').disabled = true;
   document.getElementById('btn-start-search').style.display = 'block';
 }
@@ -161,6 +163,7 @@ async function startSearch() {
   setStatus('الزائر بيبحث... انتظر');
   document.getElementById('btn-start-search').style.display = 'none';
   document.getElementById('hider-ctrl').style.display = 'none';
+  hideBuildingInfo();
 }
 
 async function confirmGuess() {
@@ -172,20 +175,25 @@ async function confirmGuess() {
   updateDots();
   setStatus('في انتظار النتيجة...');
   G.selected = null;
+  hideBuildingInfo();
 }
 
 async function handleGuess(guessCell, attempt) {
   const found = guessCell === G.hidden;
   let pts = 0;
   if (found) pts = attempt === 1 ? 20 : attempt === 2 ? 10 : 5;
-  else markBuilding(guessCell, 'wrong');
+  else markBuildingX(guessCell);
   await sendEvent({ t: 'result', found, cell: guessCell, pts, hidden: G.hidden, attempt });
   if (!found && attempt >= 3) { G.opScore += 20; updateScores(); showEnd(false, false, 0); }
   else if (found) showEnd(false, true, pts);
 }
 
 function applyResult(found, guessCell, pts, hiddenCell, attempt) {
-  if (!found) markBuilding(guessCell, 'wrong');
+  if (!found) {
+    markBuildingX(guessCell);
+    const b = selectableBuildings.find(x => x.id === guessCell);
+    if (b) showBuildingInfo(b, false, true);
+  }
   if (found) {
     G.myScore += pts; updateScores();
     if (hiddenCell) markBuilding(hiddenCell, 'found');
@@ -194,7 +202,7 @@ function applyResult(found, guessCell, pts, hiddenCell, attempt) {
     if (hiddenCell) markBuilding(hiddenCell, 'found');
     showEnd(true, false, 0);
   } else {
-    setStatus('خطأ! ' + G.attempts + ' محاولات باقية');
+    setStatus('خطأ! تبقى ' + G.attempts + ' محاولة');
     document.getElementById('btn-guess').disabled = false;
     updateBadge();
   }
@@ -212,11 +220,11 @@ function showEnd(isSeeker, found, pts) {
     ? (isGuest ? 'ربحت ' + pts + ' نقطة!' : 'الزائر اكتشف المخبأ')
     : (isGuest ? 'فشلت في إيجاد الكنز' : 'الزائر فشل — ربحت 20 نقطة!');
   document.getElementById('end-overlay').style.display = 'flex';
+  hideBuildingInfo();
   saveScore();
 }
 
 async function nextRound() {
-  // seed جديد للجولة الجديدة
   const newSeed = Math.floor(Math.random() * 2147483647);
   G.citySeed = newSeed;
   await sendEvent({ t: 'next_round', newSeed, newHostRole: G.role === 'host' ? 'guest' : 'host' });
@@ -236,16 +244,142 @@ function applyNextRound(newRole, newSeed) {
   document.getElementById('end-overlay').style.display = 'none';
   document.getElementById('btn-start-search').style.display = 'none';
   document.getElementById('btn-hide').disabled = true;
-  // يولّد المدينة بالـ seed الجديد
   if (newSeed) G.citySeed = newSeed;
   rng = makeRng(G.citySeed);
+  clearMarkers();
   resetBuildingColors();
   generateCity();
   updateUI();
+  hideBuildingInfo();
   if (G.role === 'host') setStatus('دورك تخفي الكنز — اختر مبنى');
   else setStatus('في انتظار المضيف...');
 }
 
+// ─── Building Info Panel ──────────────────────────────────
+function showBuildingInfo(b, isHidden, isWrong) {
+  const panel = document.getElementById('building-info');
+  const type = b.type || {};
+  const colorHex = '#' + (b.grp.userData.origColor || 0x888888).toString(16).padStart(6, '0');
+  let icon = '🏙️';
+  if (b.nameAr.includes('مستشف')) icon = '🏥';
+  else if (b.nameAr.includes('مدرس')) icon = '🏫';
+  else if (b.nameAr.includes('مصنع')) icon = '🏷️';
+  else if (b.nameAr.includes('مول')) icon = '🛍️';
+  else if (b.nameAr.includes('مسجد')) icon = '🕌';
+  else if (b.nameAr.includes('برج')) icon = '🏙️';
+  else if (b.nameAr.includes('منزل')) icon = '🏠';
+  
+  let statusBadge = '';
+  if (isHidden) statusBadge = '<span class="info-badge gem">💎 مخبأ الكنز</span>';
+  if (isWrong) statusBadge = '<span class="info-badge wrong">❌ ليس هنا</span>';
+
+  panel.innerHTML = 
+    '<div class="info-row">'
+    + '<span class="info-icon">' + icon + '</span>'
+    + '<div class="info-content">'
+    + '<div class="info-name">' + b.nameAr + ' ' + statusBadge + '</div>'
+    + '<div class="info-desc">' + (b.desc || 'مبنى في المدينة') + '</div>'
+    + '<div class="info-color"><span class="color-dot" style="background:' + colorHex + '"></span>' + (b.colorName || '') + ' • ID: ' + b.id + '</div>'
+    + '</div>'
+    + '</div>';
+  panel.style.display = 'block';
+}
+
+function hideBuildingInfo() {
+  const panel = document.getElementById('building-info');
+  if (panel) panel.style.display = 'none';
+}
+
+// ─── 3D Gem Marker (علامة الكنز فوق المبنى) ────────────────
+function addGemMarker(b) {
+  clearMarkers();
+  // حساب الارتفاع الفعلي للمبنى
+  const bbox = new THREE.Box3().setFromObject(b.grp);
+  const topY = bbox.max.y;
+  
+  // عمود بيأومتري
+  const stemGeo = new THREE.CylinderGeometry(0.3, 0.3, 6, 6);
+  const stemMat = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffa500, emissiveIntensity: 0.5 });
+  const stem = new THREE.Mesh(stemGeo, stemMat);
+  stem.position.set(0, topY + 3, 0);
+  
+  // معين جوهرة
+  const gemGeo = new THREE.OctahedronGeometry(3);
+  const gemMat = new THREE.MeshPhysicalMaterial({ color: 0xffd700, emissive: 0xffa500, emissiveIntensity: 0.8, metalness: 0.9, roughness: 0.1, transmission: 0.3 });
+  const gem = new THREE.Mesh(gemGeo, gemMat);
+  gem.position.set(0, topY + 9, 0);
+  gem.userData.isMarker = true;
+  gem.userData.floatBase = topY + 9;
+  
+  // حلقة تدور حول الجوهرة
+  const ringGeo = new THREE.TorusGeometry(4, 0.4, 8, 24);
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffaa00, emissiveIntensity: 0.6 });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.position.set(0, topY + 9, 0);
+  ring.rotation.x = Math.PI / 2;
+  ring.userData.isMarker = true;
+  ring.userData.isRing = true;
+  
+  // ضوء نقطي
+  const light = new THREE.PointLight(0xffd700, 2, 30);
+  light.position.set(0, topY + 9, 0);
+  light.userData.isMarker = true;
+  
+  const markerGroup = new THREE.Group();
+  markerGroup.add(stem, gem, ring, light);
+  // الموضع بجانب المبنى
+  const wp = new THREE.Vector3();
+  b.grp.getWorldPosition(wp);
+  markerGroup.position.copy(wp);
+  markerGroup.userData.isMarkerGroup = true;
+  
+  cityGroup.add(markerGroup);
+  markers.push(markerGroup);
+}
+
+// ─── X Marker على المباني الغلطة ───────────────────────────
+function addXMarker(b) {
+  const bbox = new THREE.Box3().setFromObject(b.grp);
+  const topY = bbox.max.y;
+  const wp = new THREE.Vector3();
+  b.grp.getWorldPosition(wp);
+  
+  const mat = new THREE.MeshStandardMaterial({ color: 0xe24b4a, emissive: 0xcc0000, emissiveIntensity: 0.6 });
+  const arm1 = new THREE.Mesh(new THREE.BoxGeometry(8, 1.5, 1.5), mat);
+  const arm2 = new THREE.Mesh(new THREE.BoxGeometry(8, 1.5, 1.5), mat);
+  arm1.rotation.y = Math.PI / 4;
+  arm2.rotation.y = -Math.PI / 4;
+  
+  const xGroup = new THREE.Group();
+  xGroup.add(arm1, arm2);
+  xGroup.position.set(wp.x, topY + 2, wp.z);
+  xGroup.userData.isMarkerGroup = true;
+  cityGroup.add(xGroup);
+  markers.push(xGroup);
+}
+
+function clearMarkers() {
+  markers.forEach(m => cityGroup.remove(m));
+  markers = [];
+}
+
+// ─── Mark buildings ──────────────────────────────────────────
+function markBuildingX(id) {
+  const b = selectableBuildings.find(x => x.id === id);
+  if (!b) return;
+  b.grp.userData.marked = true;
+  b.mesh.material.color.setHex(0xe24b4a);
+  addXMarker(b);
+}
+
+function markBuilding(id, state) {
+  const b = selectableBuildings.find(x => x.id === id);
+  if (!b) return;
+  b.grp.userData.marked = true;
+  b.mesh.material.color.setHex(state === 'found' ? 0xfac775 : 0xe24b4a);
+}
+
+// ─── UI ─────────────────────────────────────────────────────────────
 function updateUI() {
   const rb = document.getElementById('role-banner');
   document.getElementById('my-lbl').textContent = G.name || 'أنا';
@@ -314,6 +448,7 @@ async function loadLB() {
   tbody.innerHTML = data.map((e, i) => '<tr><td>' + (i + 1) + '</td><td>' + e.player_name + '</td><td>' + e.score + '</td></tr>').join('');
 }
 
+// ─── THREE.JS ───────────────────────────────────────────────────────────
 function initThreeJS() {
   const container = document.getElementById('city-canvas');
   if (!container || container.querySelector('canvas')) return;
@@ -333,7 +468,6 @@ function initThreeJS() {
   sun.position.set(200, 400, 100); sun.castShadow = true; scene.add(sun);
   raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
   cityGroup = new THREE.Group(); scene.add(cityGroup);
-  // استخدم الـ seed المحفوظ لتوليد المدينة
   rng = makeRng(G.citySeed || 42);
   generateCity();
   setupCityInteraction(container);
@@ -359,8 +493,7 @@ function generateCity() {
   let idx = 0;
   for (let x = -size + grid / 2; x < size; x += grid) {
     for (let z = -size + grid / 2; z < size; z += grid) {
-      const r = rng(); // seeded random بدل Math.random
-      const id = 'b' + idx++;
+      const r = rng(); const id = 'b' + idx++;
       if (r < 0.09) addSpecial(x, z, grid * 0.75, BTYPES.HOSPITAL, id);
       else if (r < 0.18) addSpecial(x, z, grid * 0.75, BTYPES.SCHOOL, id);
       else if (r < 0.27) addSpecial(x, z, grid * 0.8, BTYPES.FACTORY, id);
@@ -385,7 +518,7 @@ function addSpecial(x, z, size, type, id) {
   const mat = new THREE.MeshStandardMaterial({ color: type.color });
   const body = new THREE.Mesh(new THREE.BoxGeometry(size, h, size), mat);
   body.position.y = h / 2; body.castShadow = true; body.userData = { selId: id }; grp.add(body);
-  selectableBuildings.push({ mesh: body, id, nameAr: type.nameAr, grp });
+  selectableBuildings.push({ mesh: body, id, nameAr: type.nameAr, desc: type.desc, colorName: type.colorName, type, grp });
   const acc = new THREE.Mesh(new THREE.BoxGeometry(size + 0.5, 2, size + 0.5), new THREE.MeshStandardMaterial({ color: type.accent }));
   acc.position.y = h - 1; grp.add(acc);
   if (type === BTYPES.FACTORY) {
@@ -400,13 +533,13 @@ function addSpecial(x, z, size, type, id) {
 }
 
 function addTower(x, z, size, id) {
-  const h = 40 + rng() * 80; // seeded
+  const h = 40 + rng() * 80;
   const grp = new THREE.Group();
   grp.userData = { id, nameAr: 'برج سكني', origColor: 0x334155, marked: false };
   const mat = new THREE.MeshStandardMaterial({ color: 0x334155 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(size, h, size), mat);
   body.position.y = h / 2; body.castShadow = true; body.userData = { selId: id }; grp.add(body);
-  selectableBuildings.push({ mesh: body, id, nameAr: 'برج سكني', grp });
+  selectableBuildings.push({ mesh: body, id, nameAr: 'برج سكني', desc: 'برج زجاجي شاهق بلون زرقي', colorName: 'رمادي', grp });
   const glass = new THREE.Mesh(new THREE.BoxGeometry(size + 0.2, h * 0.9, size + 0.2), new THREE.MeshPhysicalMaterial({ color: 0x60a5fa, transmission: 0.3, thickness: 1 }));
   glass.position.y = h / 2; grp.add(glass);
   grp.position.set(x, 0, z); cityGroup.add(grp);
@@ -416,15 +549,13 @@ function addHouses(x, z, size, baseId) {
   const sub = size / 2.5; let i = 0;
   for (let a = -1; a <= 1; a += 2) {
     for (let b2 = -1; b2 <= 1; b2 += 2) {
-      const hx = x + a * sub, hz = z + b2 * sub;
-      const h = 6 + rng() * 4; // seeded
-      const id = baseId + '_' + i++;
+      const hx = x + a * sub, hz = z + b2 * sub, h = 6 + rng() * 4, id = baseId + '_' + i++;
       const grp = new THREE.Group();
       grp.userData = { id, nameAr: 'منزل سكني', origColor: 0xf1f5f9, marked: false };
       const mat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9 });
       const house = new THREE.Mesh(new THREE.BoxGeometry(8, h, 8), mat);
       house.position.y = h / 2; house.castShadow = true; house.userData = { selId: id }; grp.add(house);
-      selectableBuildings.push({ mesh: house, id, nameAr: 'منزل سكني', grp });
+      selectableBuildings.push({ mesh: house, id, nameAr: 'منزل سكني', desc: 'منزل أبيض بسطح أحمر', colorName: 'أبيض', grp });
       const roof = new THREE.Mesh(new THREE.BoxGeometry(9, 1, 9), new THREE.MeshStandardMaterial({ color: 0x991b1b }));
       roof.position.y = h; grp.add(roof);
       grp.position.set(hx, 0, hz); cityGroup.add(grp);
@@ -499,21 +630,18 @@ function onCityClick(event, container) {
   const canHide = G.role === 'host' && G.phase === 'hiding';
   const canGuess = G.role === 'guest' && G.phase === 'seeking' && G.attempts > 0;
   if (!canHide && !canGuess) return;
+  if (b.grp.userData.marked && canGuess) return; // لا يقدر يختار مبنى عليه X
   if (G.selected && G.selected !== b.id) {
     const prev = selectableBuildings.find(x => x.id === G.selected);
     if (prev && !prev.grp.userData.marked) prev.mesh.material.color.setHex(prev.grp.userData.origColor);
   }
   G.selected = b.id;
   b.mesh.material.color.setHex(0x00ff88);
+  // أظهر معلومات المبنى
+  showBuildingInfo(b, false, false);
   setStatus('اخترت: ' + b.nameAr);
   if (canHide) document.getElementById('btn-hide').disabled = false;
   else document.getElementById('btn-guess').disabled = false;
-}
-
-function markBuilding(id, state) {
-  const b = selectableBuildings.find(x => x.id === id); if (!b) return;
-  b.grp.userData.marked = true;
-  b.mesh.material.color.setHex(state === 'found' ? 0xfac775 : 0xe24b4a);
 }
 
 function resetBuildingColors() {
@@ -521,12 +649,24 @@ function resetBuildingColors() {
   G.selected = null;
 }
 
+let animFrame = 0;
 function animateCity() {
   requestAnimationFrame(animateCity);
   if (!renderer || !scene || !camera) return;
+  animFrame++;
   cityGroup.rotation.y += (targetRotY - cityGroup.rotation.y) * 0.08;
   cityGroup.rotation.x += (targetRotX - cityGroup.rotation.x) * 0.08;
   cityGroup.rotation.x = Math.max(0.05, Math.min(cityGroup.rotation.x, 1.2));
+  // تحريك الجوهرة للأعلى والحلقة تدور
+  cityGroup.traverse(obj => {
+    if (obj.userData.floatBase !== undefined) {
+      obj.position.y = obj.userData.floatBase + Math.sin(animFrame * 0.05) * 2;
+      obj.rotation.y += 0.02;
+    }
+    if (obj.userData.isRing) {
+      obj.rotation.z += 0.03;
+    }
+  });
   cars.forEach(c => {
     if (c.horizontal) { c.mesh.position.x += c.speed; if (Math.abs(c.mesh.position.x) > 300) c.mesh.position.x *= -1; }
     else { c.mesh.position.z += c.speed; if (Math.abs(c.mesh.position.z) > 300) c.mesh.position.z *= -1; }
