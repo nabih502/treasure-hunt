@@ -11,8 +11,22 @@ const BTYPES = {
   HOUSE:    { color: 0xf1f5f9, accent: 0x991b1b, nameAr: 'منزل سكني' },
 };
 
+// ─── Seeded random (Mulberry32) ───────────────────────────────
+// بيضمن إن نفس الـ seed يطلع نفس المدينة عند المضيف والزائر
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return function() {
+    s += 0x6D2B79F5;
+    let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t ^= t + Math.imul(t ^ t >>> 7, 61 | t);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+let rng = Math.random; // افتراضي — هيتغير لما تيجي الـ seed
+
 let sb = null, realtimeChannel = null;
-let G = { name:'', role:'host', myScore:0, opScore:0, oppName:'؟', roomCode:'', hidden:null, selected:null, attempts:3, phase:'lobby', timerV:60, timerI:null };
+let G = { name:'', role:'host', myScore:0, opScore:0, oppName:'؟', roomCode:'', hidden:null, selected:null, attempts:3, phase:'lobby', timerV:60, timerI:null, citySeed:0 };
 let scene, camera, renderer, cityGroup, raycaster, mouse;
 let selectableBuildings = [], cars = [];
 let isMouseDown = false, targetRotX = 0.55, targetRotY = -0.4;
@@ -44,14 +58,17 @@ function toggleJoin() {
 }
 
 function genCode() { return Math.floor(100000 + Math.random() * 900000).toString(); }
-
 function copyCode() { navigator.clipboard.writeText(G.roomCode).catch(() => {}); }
 
 async function doCreate() {
   const name = getName(); if (!name) return;
   initSB();
   G.name = name; G.role = 'host'; G.roomCode = genCode();
-  const { error } = await sb.from('game_rooms').insert({ code: G.roomCode, host_name: name, status: 'waiting', map_idx: 0, phase: 'hiding' });
+  // المضيف يولّد الـ seed وبيحفظه في قاعدة البيانات
+  G.citySeed = Math.floor(Math.random() * 2147483647);
+  const { error } = await sb.from('game_rooms').insert({
+    code: G.roomCode, host_name: name, status: 'waiting', map_idx: G.citySeed, phase: 'hiding'
+  });
   if (error) { showErr('خطأ في إنشاء الغرفة'); return; }
   document.getElementById('show-code').textContent = G.roomCode;
   show('wait');
@@ -68,12 +85,14 @@ async function doJoin() {
   const { data, error } = await sb.from('game_rooms').select('*').eq('code', code).eq('status', 'waiting').single();
   if (error || !data) { showErr('الغرفة مش موجودة'); return; }
   G.oppName = data.host_name;
+  // الزائر بياخد نفس الـ seed من قاعدة البيانات
+  G.citySeed = data.map_idx || 1;
   await sb.from('game_rooms').update({ guest_name: name, status: 'playing' }).eq('code', code);
   document.getElementById('show-code').textContent = code;
   show('wait');
   subscribeToRoom(code);
   setConnected(true, 'متصل ✓');
-  await sendEvent({ t: 'guest_joined', name: G.name });
+  await sendEvent({ t: 'guest_joined', name: G.name, seed: G.citySeed });
   setTimeout(() => startGame(), 400);
 }
 
@@ -115,7 +134,7 @@ function handleMsg(type, data) {
 }
 
 function startGame() {
-  show('game'); 
+  show('game');
   if (G.role === 'host') {
     G.phase = 'hiding'; updateUI();
     setStatus('اختر مبنى من المدينة واضغط تأكيد الإخفاء');
@@ -197,20 +216,32 @@ function showEnd(isSeeker, found, pts) {
 }
 
 async function nextRound() {
-  await sendEvent({ t: 'next_round', newHostRole: G.role === 'host' ? 'guest' : 'host' });
-  applyNextRound(G.role === 'host' ? 'guest' : 'host');
+  // seed جديد للجولة الجديدة
+  const newSeed = Math.floor(Math.random() * 2147483647);
+  G.citySeed = newSeed;
+  await sendEvent({ t: 'next_round', newSeed, newHostRole: G.role === 'host' ? 'guest' : 'host' });
+  applyNextRound(G.role === 'host' ? 'guest' : 'host', newSeed);
 }
 
-function startNextRound(data) { applyNextRound(G.role === 'host' ? 'guest' : 'host'); }
+function startNextRound(data) {
+  const newSeed = data.newSeed || G.citySeed;
+  G.citySeed = newSeed;
+  applyNextRound(G.role === 'host' ? 'guest' : 'host', newSeed);
+}
 
-function applyNextRound(newRole) {
+function applyNextRound(newRole, newSeed) {
   G.role = newRole;
   G.hidden = null; G.selected = null; G.attempts = 3;
   G.phase = newRole === 'host' ? 'hiding' : 'waiting_host';
   document.getElementById('end-overlay').style.display = 'none';
   document.getElementById('btn-start-search').style.display = 'none';
   document.getElementById('btn-hide').disabled = true;
-  resetBuildingColors(); updateUI();
+  // يولّد المدينة بالـ seed الجديد
+  if (newSeed) G.citySeed = newSeed;
+  rng = makeRng(G.citySeed);
+  resetBuildingColors();
+  generateCity();
+  updateUI();
   if (G.role === 'host') setStatus('دورك تخفي الكنز — اختر مبنى');
   else setStatus('في انتظار المضيف...');
 }
@@ -302,6 +333,8 @@ function initThreeJS() {
   sun.position.set(200, 400, 100); sun.castShadow = true; scene.add(sun);
   raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
   cityGroup = new THREE.Group(); scene.add(cityGroup);
+  // استخدم الـ seed المحفوظ لتوليد المدينة
+  rng = makeRng(G.citySeed || 42);
   generateCity();
   setupCityInteraction(container);
   animateCity();
@@ -326,7 +359,8 @@ function generateCity() {
   let idx = 0;
   for (let x = -size + grid / 2; x < size; x += grid) {
     for (let z = -size + grid / 2; z < size; z += grid) {
-      const r = Math.random(), id = 'b' + idx++;
+      const r = rng(); // seeded random بدل Math.random
+      const id = 'b' + idx++;
       if (r < 0.09) addSpecial(x, z, grid * 0.75, BTYPES.HOSPITAL, id);
       else if (r < 0.18) addSpecial(x, z, grid * 0.75, BTYPES.SCHOOL, id);
       else if (r < 0.27) addSpecial(x, z, grid * 0.8, BTYPES.FACTORY, id);
@@ -366,7 +400,7 @@ function addSpecial(x, z, size, type, id) {
 }
 
 function addTower(x, z, size, id) {
-  const h = 40 + Math.random() * 80;
+  const h = 40 + rng() * 80; // seeded
   const grp = new THREE.Group();
   grp.userData = { id, nameAr: 'برج سكني', origColor: 0x334155, marked: false };
   const mat = new THREE.MeshStandardMaterial({ color: 0x334155 });
@@ -382,7 +416,9 @@ function addHouses(x, z, size, baseId) {
   const sub = size / 2.5; let i = 0;
   for (let a = -1; a <= 1; a += 2) {
     for (let b2 = -1; b2 <= 1; b2 += 2) {
-      const hx = x + a * sub, hz = z + b2 * sub, h = 6 + Math.random() * 4, id = baseId + '_' + i++;
+      const hx = x + a * sub, hz = z + b2 * sub;
+      const h = 6 + rng() * 4; // seeded
+      const id = baseId + '_' + i++;
       const grp = new THREE.Group();
       grp.userData = { id, nameAr: 'منزل سكني', origColor: 0xf1f5f9, marked: false };
       const mat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9 });
