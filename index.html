@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>ابحث معايا 🗺️</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="style.css"/>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>ابحث معايا</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="style.css"/>
 </head>
 <body>
 <div id="app">
   <div id="s-lobby" class="screen active">
     <div class="hero"><div class="hero-icon">🗺️</div><h1>ابحث معايا</h1><p class="sub">مضيف وزائر — مدينة 3D</p></div>
-    <div class="card"><h3>اسمك</h3>
+    <div class="card">
+      <h3>اسمك</h3>
       <input class="input mb2" id="inp-name" placeholder="ادخل اسمك..." maxlength="20"/>
       <div class="grid2">
-        <button class="btn primary" onclick="doCreate()">🏠 انشئ غرفة (مضيف)</button>
+        <button class="btn primary" onclick="doCreate()">🏠 انشئ غرفة</button>
         <button class="btn" onclick="toggleJoin()">🚶 انضم كزائر</button>
       </div>
       <div id="join-box" style="display:none;margin-top:12px">
@@ -25,19 +25,17 @@
       <div id="lobby-err" class="err-msg" style="display:none"></div>
     </div>
     <div class="roles-info card">
-      <div class="role-info-item"><span class="role-badge host-badge">🏠 المضيف</span><span>يخفي الكنز ثم يبدأ رحلة البحث للزائر</span></div>
-      <div class="role-info-item"><span class="role-badge guest-badge">🚶 الزائر</span><span>يبحث عن الكنز في 3 محاولات</span></div>
+      <div class="role-info-item"><span class="role-badge host-badge">🏠 المضيف</span><span>يخفي الكنز ثم يبدأ رحلة البحث</span></div>
+      <div class="role-info-item"><span class="role-badge guest-badge">🚶 الزائر</span><span>3 محاولات تخمين + 3 استغاثات من المضيف</span></div>
     </div>
     <div class="card"><h3>🏆 أفضل اللاعبين</h3>
       <table class="lb-table w100"><thead><tr><th>#</th><th>الاسم</th><th>النقاط</th></tr></thead>
-      <tbody id="lb-body"><tr><td colspan="3" class="empty-cell">لا يوجد بيانات بعد</td></tr></tbody></table>
-    </div>
+      <tbody id="lb-body"><tr><td colspan="3" class="empty-cell">لا يوجد بيانات بعد</td></tr></tbody>
+    </table></div>
   </div>
-
   <div id="s-wait" class="screen">
     <div class="card text-center">
-      <div style="font-size:40px;margin-bottom:8px">⏳</div>
-      <h2>في انتظار الاتصال</h2>
+      <div style="font-size:40px;margin-bottom:8px">⏳</div><h2>في انتظار الاتصال</h2>
       <p class="mb2">شارك الكود مع الزائر</p>
       <div class="code-display" id="show-code">------</div>
       <div class="flex-center gap12 mt2">
@@ -46,7 +44,6 @@
       </div>
     </div>
   </div>
-
   <div id="s-game" class="screen game-screen">
     <div class="game-topbar">
       <div id="role-banner" class="role-banner">دورك</div>
@@ -57,12 +54,24 @@
       <div class="score-card"><div class="score-num" id="op-sc">0</div><div class="score-label" id="op-lbl">المقابل</div></div>
     </div>
     <div id="status-bar" class="status-bar"></div>
+    <!-- محاولات التخمين -->
     <div id="att-row" class="att-row" style="display:none">
-      <span class="att-label">محاولاتك:</span>
+      <span class="att-label">محاولات:</span>
       <div class="flex gap6" id="att-dots"><div class="dot left"></div><div class="dot left"></div><div class="dot left"></div></div>
       <span class="badge bg" id="pts-badge">20 نقطة</span>
     </div>
-
+    <!-- طلبات الاستغاثة -->
+    <div id="help-row" class="help-row" style="display:none">
+      <span class="att-label">استغاثة:</span>
+      <button id="btn-help" class="btn help-btn" onclick="askForHelp()">🚨 استغاثة (3)</button>
+      <div id="hint-dots" class="flex gap4">
+        <div class="help-dot left"></div><div class="help-dot left"></div><div class="help-dot left"></div>
+      </div>
+    </div>
+    <!-- تلميح وصل للزائر -->
+    <div id="hint-guest-box" style="display:none"></div>
+    <!-- لوحة المضيف لتأكيد إرسال التلميح -->
+    <div id="hint-host-panel" style="display:none"></div>
     <div class="city-wrap">
       <div id="city-canvas" class="city-canvas"></div>
       <div class="city-legend">
@@ -77,22 +86,19 @@
       <div class="city-tip">🖱️ اسحب للتدوير • اضغط على مبنى</div>
       <div id="end-overlay" class="overlay" style="display:none">
         <div class="modal"><div class="modal-icon" id="ov-icon">🎉</div><h2 id="ov-title"></h2><p id="ov-msg" class="mb2"></p>
-          <button class="btn primary" onclick="nextRound()">الجولة التالية — تبديل الأدوار ↺</button>
+          <button class="btn primary" onclick="nextRound()">الجولة التالية ↺</button>
         </div>
       </div>
     </div>
-
-    <!-- Building Info Panel -->
     <div id="building-info" class="building-info" style="display:none"></div>
-
     <div id="hider-ctrl" style="display:none" class="ctrl-area">
       <button class="btn primary w100" id="btn-hide" onclick="confirmHide()" disabled>✅ تأكيد إخفاء الكنز هنا</button>
-      <p class="note">اضغط على مبنى لتختاره كمخبأ</p>
+      <p class="note">اضغط على مبنى لتختاره</p>
     </div>
     <button id="btn-start-search" class="btn success w100 ctrl-area" onclick="startSearch()" style="display:none">🔍 ابدأ رحلة البحث للزائر</button>
     <div id="seeker-ctrl" style="display:none" class="ctrl-area">
       <button class="btn primary w100" id="btn-guess" onclick="confirmGuess()" disabled>🔍 تأكيد التخمين</button>
-      <p class="note">اضغط على مبنى لتخمن مكان الكنز</p>
+      <p class="note">اضغط على مبنى لتخمن</p>
     </div>
     <div class="chat-wrap">
       <div class="chat-msgs" id="chat-el"></div>
@@ -106,5 +112,4 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="game.js"></script>
-</body>
-</html>
+</body></html>
